@@ -1,0 +1,298 @@
+---
+title: "RAP for Maps"
+author: "Data Science Campus"
+date: "29/11/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r, include=FALSE}
+# R libraries required by the document
+library(sf)
+library(dplyr)
+library(readr)
+library(readxl)
+library(stringr)
+library(stringi)
+library(smoothr)
+library(units)
+library(tmap)
+```
+
+```{r, include=FALSE}
+# Config - Data Sources
+
+# ONS Open Geography Portal
+lsoas_url <- "https://opendata.arcgis.com/datasets/da831f80764346889837c72508f046fa_0.geojson"
+
+# ONS Website
+lsoa_popn_url <- "https://www.ons.gov.uk/file?uri=%2fpeoplepopulationandcommunity%2fpopulationandmigration%2fpopulationestimates%2fdatasets%2flowersuperoutputareamidyearpopulationestimates%2fmid2018sape21dt1a/sape21dt1amid2018on2019lalsoasyoaestimatesformatted.zip"
+
+lsoa_popn_name <- "SAPE21DT1a-mid-2018-on-2019-LA-lsoa-syoa-estimates-formatted.xlsx"
+
+lsoa_popn_sheet <- 'Mid-2018 Persons'
+
+# London Datastore
+school_url <- "https://data.london.gov.uk/download/london-schools-atlas/57046151-39a0-45d9-8dc0-27ea7fd02de8/all_schools_xy_2016.csv"
+
+```
+
+
+## What is RAP?
+
+Reproducible Analytical Pipelines, or **RAP**, aim to create reproducible, transparent and auditable code. RAP is used in some areas of the UK Government statistical system where periodic reporting is required. RAP is useful for streamlining repetitive tasks, and avoids the segmentation of a workflow into a set of manual tasks undertaken in a range of software tools operated through a point-and-click interface.
+
+A conventional workflow for producing statistical outputs might look like:
+
+![](https://dataingovernment.blog.gov.uk/wp-content/uploads/sites/46/2017/03/sMMBa2xfksovCZRW-cYJFNA.png)
+
+Whereas a reproducible analytical pipeline looks like:
+
+![](https://dataingovernment.blog.gov.uk/wp-content/uploads/sites/46/2017/03/spdVp_pexfJNpJjIxNp1rbQ.png)
+
+Conventional processes of production of routine analysis or periodic reporting can be inflexible, dependent on human resource availability, manual and subject to idiosyncratic practices, and error prone. RAP can mitigate the appearance of random errors in a workflow due to human operators, and exposes an entire analytical process from end-to-end to audit and quality assurance. RAP is also less dependent on specialists and can complete tasks in substantially less time. RAP allows teams to collaborate on a task and build complementary skills that can be applied to other business problems.
+
+## Main RAP Concepts
+
+A reproducible analytical pipeline combines:  
+1. Version Control  
+2. Reproducible Code  
+3. Testing  
+4. Literate Programming  
+
+### Version Control
+
+Version control, using a technology like Git, is a good way to track your progress. Git allows you to check in ('commit') changes to files as you make them, creating a history of all your commits. You can return to previous versions, or create separate versions of a file as you require. Git can be used to track any file, but is most often used for programming files like R or python scripts.
+
+Git by default tracks your files on your local machine. Connecting Git to a service like github, gitlab or bitbucket allows you to push your files to a cloud server, making your work less vulnerable to local failures and enabling you to share your code and collaborate with others. Using a service like github or gitlab gives users a formal place to review code and raise quality assurance issues.
+
+### Reproducible Code
+
+Reproducible code is clean and self-describing, it should be easy to read and understand even with limited prior knowledge of the code itself. This limits the effort and experience required to maintain or extend the code.
+
+**Names** should be consistent and descriptive in code, reflecting what a function does and what a variable stores.
+
+**Readable** code is concise and clear. Readability should be prioritised over how much space the code takes up, often an extra line or two of code that benefits readability and maintenance won't detriment code runtime. 
+
+**Configuration files** (config files) are useful for specifying any information that changes between instances of running the code. In the case of a periodic report this might include variables that store the current month, year or data table name, while for some analytical tasks it might include specifying particular parameters or assumptions relevant to a specific model run. In an ideal RAP set up only the config file would need editing before running the pipeline.
+
+**Functions** are code that can be used to repeat a process more than once. A function can be updated, safe in the knowledge that this update will be reflected wherever you call the function. Ideally, a function should be small and do only one thing.
+
+### Testing
+
+Testing code means designing automated quality control that ensures that code consistently does what it is supposed to. This is particularly important as you (or someone else) enhance your code, as it will alert you if you accidentally change the behaviour of a function.
+
+### Literate Programming
+
+Literate programming augments reproducible code by embedding nicely formatted text, images, equations and other media alongside snippets of code. This creates a comprehensive document about the program itself and its maintenance. Generally, when we think about RAP we are using literate programming as a document generator - supporting material details the analysis it sits alongside in the form of a report, but doesn't necessarily document the code itself.
+
+This document has been written in RMarkdown, which combines code with 'markdown' a lightweight markup language. The .Rmd file contains all the code and report text sufficient to produce a report and can be compiled or 'knit' into a final product that runs all relevant analysis, draws any graphs and embeds them into a pdf or html document.
+
+## RAP with Maps?
+
+While RAP has largely targeted statistical reporting, there really is no reason that we can't apply the same principles to mapping and spatial analysis. Data Science tools like R and Python are well set up to handle spatial data and apply sophisticated spatial analysis procedures using open source tools.
+
+| Geospatial Task | R | Python |
+| --- | --- | --- |
+| Working with Vector Data | `sf` | `geopandas` |
+| Working with Raster Data | `raster` | `rasterio` |
+| Basic Mapping | `ggplot2` | `matplotlib` |
+| Interactive Mapping | `leaflet` | `folium` |
+| Spatial Analysis | `sp` | `pysal` |
+
+Naturally, both R and python offer a great many more analytical packages, as well as the flexibility to design and apply your own analytical procedures.
+
+In the rest of this document, you will see examples of emdedding the kind of outputs you might previously have used a GIS tool for directly into a report. We will eliminate the GUI-based point-and-click of ArcMap or QGIS in favour of clear and reproducible instructions using code.
+
+# Spatial Accessibility to Secondary Schools in London
+
+Our task in this document will be to measure the spatial accessibility of young people to secondary schools using the lower-layer super output area (lsoa) geography. To do this we'll first load in some typical geospatial and tabular data, merge the data by way of a table join and visualise the output, then we'll create a spatial analysis function to do the accessibility analysis. Now, you're not going to see most of that in the compiled document, but all the actions will be there in the Rmarkdown file.
+
+We are primarily working with `tidyverse` functions, this includes with the spatial data where the `sf` library makes use of and extends the `tibble` data structure.
+
+All of the data used in this report is pulled down from relevant locations on the internet - the London Datastore, the ONS website and the ONS Open Geography Portal.
+
+The main analytical method employed in the two step floating catchment approach. In the first step, supply points (secondary schools) effectively buffered, and demand point that have their centroid within the radius of the demand buffer have their demand allocated to a supply point according to the formula $R_{j}$. Subsequently, These values are summed for all relevant lsoas to produce the accessibility index $A_{i}$. This can be expressed mathematically as:
+
+$$R_{j} = \frac{S_{j}}{\sum_{k \in d_{jk}} P_{k}}$$
+
+$$A_{i} = \sum_{j \in d_{ij}} R_{j{}}$$
+Where,  
+$S_{j}$ is a capacity for a supply point $j$.  
+$P_{k}$ is a population optionally in $k$ groups.  
+And, $R_{j}$ is thus the provider-to-population ratio.  
+Further, $A_{i}$ is the access score for each geography $i$  
+All subject to a predefined distance term $d$ which is a binary weights matrix of inclusion or exclusion based on a threshold distance.
+
+More information on the two step floating catchment is given in [McGrail (2012)][1].
+
+```{r, include=FALSE}
+# Regex to pull out London boroughs
+boros <- "London|Barking|Barnet|Bexley|Brent\\s|Bromley|Camden|Croydon|Ealing|Enfield|Greenwich|Hackney|Hammersmith|Haringey|Harrow|Havering|Hillingdon|Hounslow|Islington|Chelsea|Kingston upon Thames|Lambeth|Lewisham|Merton|Newham|Redbridge|Richmond\\s|Southwark|Sutton|Tower Hamlets|Waltham Forest|Wandsworth|Westminster"
+
+# 2011 lsoa data from ONS Open Geography Portal
+ldn <- sf::st_read(lsoas_url) %>%
+  dplyr::filter(stringr::str_detect(lsoa11nm, boros)) %>% st_transform(27700)
+
+```
+
+```{r, include = FALSE}
+# Deal with the fact that ONS zips the data.
+temp <- tempfile()
+tempd <- tempdir()
+download.file(lsoa_popn_url,temp, mode ='wb')
+unzip(temp, exdir = tempd)
+
+# ONS Mid Year 2018 Population Statistics
+lsoa_popn <- readxl::read_xlsx(file.path(tempd, lsoa_popn_name), lsoa_popn_sheet, skip = 4) %>%
+  select(-"LA (2019 boundaries)") %>% filter(!is.na(LSOA)) %>%
+  select("Area Codes", "LSOA","All Ages", "11", "12", "13", "14", "15", "16") %>%
+  mutate_at(c("All Ages", "11", "12", "13", "14", "15", "16"), as.numeric)
+
+unlink(temp)
+unlink(tempd)
+```
+
+```{r, include = FALSE}
+# Merge the spatial and table data
+ldn <- left_join(ldn, lsoa_popn, by = c("lsoa11cd" = "Area Codes"))
+# Calculate secondary age density
+ldn <- ldn %>%
+  mutate("Secondary Age" = ldn %>% st_drop_geometry() %>% select(9:14) %>% rowSums(), 
+         "Secondary Age Percent" = `Secondary Age`/`All Ages` * 100,
+         "Secondary Age Density" = `Secondary Age` / (sf::st_area(ldn)%>% units::set_units(km^2)))
+```
+
+```{r, include = FALSE}
+# Dissolve on Borough Name to create some nice boundaries for the map.
+ldn_boro <- ldn %>% mutate('Borough Name' = stringi::stri_reverse(stringr::str_split(stringi::stri_reverse(`lsoa11nm`), pat = " ", n=2, simplify = TRUE)[,2])) %>% 
+  group_by(`Borough Name`) %>% 
+  summarise() %>%
+  smoothr::fill_holes(threshold = units::set_units(0.5,km^2)) %>%
+  st_set_crs(27700)
+
+```
+
+```{r, echo=FALSE, fig.width=10, fig.height=5.5, fig.align = 'center'}
+# Create two plots - percentage and density
+ldn_map_perc <- tm_shape(ldn) + 
+  tm_fill(col="Secondary Age Percent", n=5, palette="Reds", styl ="quantile", title="Population Aged 11-16\n(% of Total Population)") + 
+  tm_layout(legend.position = c("left", "bottom")) +
+  tm_shape(ldn_boro) + 
+  tm_borders()
+
+ldn_map_density <- tm_shape(ldn) + 
+  tm_fill(col="Secondary Age Density", n=5, palette="Reds", style="quantile", title ="Population Aged 11-16\n (Density per Square Km)") +
+  tm_layout(legend.position = c("left", "bottom")) +
+  tm_shape(ldn_boro) + 
+  tm_borders()
+
+tmap_arrange(ldn_map_perc, ldn_map_density)
+```
+
+These two maps demonstrate two common standardisations used in geovisualisation. The left-hand panel shows a part-to-whole measure, the proportion of the population that comprises secondary school age children. The right-hand panel shows a density measure, effectively the concentration of secondary school children per unit area. These are two different perspectives on a similar task, understanding how secondary school age children are distributed in space. The variation shown in these maps helps motivate the analysis performed later.
+
+The choropleth maps here demonstrate R's mapping capability; the plots are made using the `tmap` (thematic map) package. `tmap` is built around the same organising principle as the well-known ggplot2 - a grammar of graphics. The grammar of graphics approach means that (geo)visualisations are built up in layers that describe and structure the graphic of interest. The graphic uses the concept of marks (e.g. geometries - points, lines and polygon) and attributes (aesthetic characteristics) to systematically set out and style a graphic.
+
+These visualisations are light-touch, demonstrating that a lot can be achieved with only a few basic instructions. However, production quality graphics can be made in adherence to established house styles by meticulous tweaking of the many properties available.
+
+```{r, include = FALSE}
+# Get csv of schools data
+schools <- readr::read_csv(school_url) %>% 
+  filter(STATUS == 'Open' & PHASE == 'Secondary')
+
+# Make the table a spatial sf object
+# Spatial selection as some schools in the table are outside the London Boundary
+schools_geo <- st_as_sf(schools, coords = c('EASTING','NORTHING'), crs = 27700) %>% 
+  filter(apply(st_intersects(.,ldn_boro, sparse = FALSE), 1, any))
+```
+
+```{r, include = FALSE}
+school_counts <- st_join(schools_geo, ldn_boro, join = st_within) %>% 
+  count(`Borough Name`) %>% 
+  group_by(`Borough Name`) %>% st_set_geometry(NULL)
+
+ldn_boro <- ldn_boro %>% left_join(school_counts, by = "Borough Name")
+```
+
+```{r, echo = FALSE, fig.width=10, fig.height=5.5, fig.align = 'center'}
+
+ldn_schools <- tm_shape(ldn_boro) + 
+  tm_fill(col='lightgrey') +
+  tm_borders() + 
+  tm_shape(schools_geo) + 
+  tm_symbols(size = 0.2, shape = 18, col = 'black') + 
+  tm_layout(title = "Secondary School Locations")
+
+ldn_school_counts <- tm_shape(ldn_boro) + 
+  tm_fill(col = "n", title = "Secondary Schools\nCount", palette = "RdPu") + 
+  tm_layout(legend.position = c("left","bottom")) +
+  tm_borders()
+
+tmap_arrange(ldn_schools, ldn_school_counts)
+```
+
+These two maps demonstrate two common geovisualisations of the same spatial data, on the left we see the point pattern of secondary school locations in London. On the right that data is represented in the form of counts of secondary schools by London borough. This is the result of a 'spatial join', one of the workhorses of GIS, and a straightforward tool that's build into R's `sf` package. If we wanted to go beyond the arbitrary containerisation of schools within borough boundaries we can employ a point or kernel density estimate (heatmap) in a straightforward way.
+
+```{r, include = FALSE}
+floating_catchment <- function(demand, supply, population, maxdist =2000){
+  # Make sparse distance matrix
+  nn <- nngeo::st_nn(supply, demand, k = dim(demand)[1], maxdist = maxdist, progress = FALSE)
+  # Create output field "Ai"
+  demand <- demand %>% mutate("Ai" = 0)
+
+  for (j in 1:length(nn)) {
+    Rj <- demand %>% 
+      slice(nn[[j]]) %>% 
+      select(population) %>% 
+      summarise("Catchment" = sum((!!as.name(population)))) %>% 
+      st_drop_geometry()
+    
+    Rj <- as.double(1/Rj) # change 1 for Sj to capacitate.
+    
+    demand <- demand %>% 
+      mutate(Ai = ifelse(row_number() %in% nn[[j]], Ai + Rj, Ai))
+  }
+  return(demand)
+}
+```
+
+```{r, echo = FALSE, message=FALSE, fig.width=10, fig.height=5.5, fig.align = 'center'}
+ldn <- ldn %>% 
+  floating_catchment(., schools_geo, "Secondary Age") %>% 
+  mutate(Ai = Ai *10000)
+
+Ai_map <- tm_shape(ldn) + 
+  tm_fill("Ai", title = "Accessibility to Secondary Schools\nSchools per 10,000 School Age Pop.") + 
+  tm_layout(legend.position = c("left", "bottom")) + 
+  tm_shape(ldn_boro) + 
+  tm_borders()
+Ai_map
+```
+
+This final visualisation shows the output of a spatial analysis procedure that estimates accessibility to secondary schools for school age children. The analytical function is written in R and defines the two-step floating catchment model, a form of spatial interaction model that outlines opportunity or potential to access a location-based resource or service. The thematic map thus shows variation in spatial accessibility.
+
+## Consolidation
+
+The intent of this piece is to give a simple demonstration of the capability of reproducible analytical pipelines in the spatial context. The code embedded within with document makes use of a range of common spatial analytical and GIS procedures and tools, demonstrating the versatility of the R statistical programming language for spatial data manipulation, analysis and visualisation.
+
+The embedded code itself demonstrates the kind of automation that could be applied to geospatial tasks that make up a routine workflow that requires periodic revision and release of updated statistics or maps.
+
+There are many other things that could enhance the simple example we have put together here.  
+* A comprehensive approach to version control and storage (e.g. git + github/lab) for a sufficiently important statistic or report would allow multiple stakeholders to access the report, update or contribute collaboratively to iteratively improve, revise or reissue the report periodically. Version control allow contributions to be tracked, and enables code to be rolled back in the event that someone breaks it.  
+* The config file could be abstracted from the report itself in order to allow non-expert users to update the parameter of the file in a spreadsheet and run the report without worrying about dealing directly with the code. The range of parameters can be increased to allow for more comprehensive control over the behaviour of the code in the report.  
+* If sections of the report have to be periodically reauthored, the actual code can be wrapped into functions and pushed into a separate file, this would minimise the actual presence of code in the report document itself and consolidate the code base in a separate file that is less clusterred for working with. This may be easier and more maintainable for colleagues overseeing the code itself.  
+* Dependency management who ideally occur in most cases. Effectively this means working in virtual environment with a predefined set of software packages, identified by their version, such that changes or updates don't introduce unforeseen errors or side effects. Dependency management is an important part of maintaining a reproducible and consistent codebase. RStudio's dependency management system is called `packrat`, while `conda` and `pipenv` are well-use virtual environment and dependency management solutions in python.  
+* A good piece of production code would likely include some unit tests. These are blocks of code that test the different functions encapsulated within the report, and compare what the function returns against a known 'correct answer'. Well written unit tests are an important defense against the unseen emergence of bug in code that subtlely alter the validity of the analysis performed.  
+* Continuous integration tools, like circle or travis, help with the continuous checking of code in an automated way everytime changes are committed to a project. This can be particularly useful if there are several developers working on the same code base, or if there is substantial change and improvement happening to code.  
+
+Naturally, in any context for which RAP might provide useful features, there is a balance to be struck. Some of these suggestions are only truly useful in particular production contexts (e.g. continuous integration), whereas others are useful even in conventional analysis (e.g. virtual environments and dpeendency management).
+
+For more information about RAP in general, see the [Data in Government blog](https://dataingovernment.blog.gov.uk/2017/03/27/reproducible-analytical-pipeline/).
+
+### References
+[1] McGrail M. 2012. Spatial accessibility of primary health care utilising the two step floating catchment area method: an assessment of recent improvements. *International Journal of Health Geographics*. 11:50. 
